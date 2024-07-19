@@ -51,6 +51,7 @@ class TemplateMatchingPlan:
 
         # Data for the mask
         self.mask = cp.asarray(mask, dtype=cp.float32, order="C")
+        self.maskFB = cp.asarray(mask, dtype=cp.float32, order="C")
         self.mask_texture = vt.StaticVolume(
             self.mask, interpolation="filt_bspline", device=f"gpu:{device_id}"
         )
@@ -59,6 +60,8 @@ class TemplateMatchingPlan:
 
         # Init template data
         self.template = cp.asarray(template, dtype=cp.float32, order="C")
+        self.templateFB=cp.asarray(template, dtype=cp.float32, order="C")
+        
         self.template_texture = vt.StaticVolume(
             self.template, interpolation="filt_bspline", device=f"gpu:{device_id}"
         )
@@ -96,9 +99,11 @@ class TemplateMatchingPlan:
             self.volume_rft_conj,
             self.volume_sq_rft_conj,
             self.mask,
+            self.maskFB,
             self.mask_texture,
             self.mask_padded,
             self.template,
+            self.templateFB,
             self.template_texture,
             self.template_padded,
             self.wedge,
@@ -226,18 +231,22 @@ class TemplateMatchingGPU:
             # Size x volume (sxv) and center x volume (xcv)
             sxv, syv, szv = self.plan.template_padded.shape
             cxv, cyv, czv = sxv // 2, syv // 2, szv // 2
+            pad_index = (
+            slice(cxv - cxt, cxv + cxt + mx),
+            slice(cyv - cyt, cyv + cyt + my),
+            slice(czv - czt, czv + czt + mz),
+            )
         else:
             szv=0
             czv=0
             sxv, syv  = self.plan.template_padded.shape
             cxv, cyv  = sxv // 2, syv // 2
-
-        # create slice for padding
-        pad_index = (
+            pad_index = (
             slice(cxv - cxt, cxv + cxt + mx),
             slice(cyv - cyt, cyv + cyt + my),
-            slice(czv - czt, czv + czt + mz),
-        )
+            )
+        # create slice for padding
+        
 
         # calculate roi mask
         shift = cp.floor(cp.array(self.plan.scores.shape) / 2).astype(int) + 1
@@ -250,7 +259,7 @@ class TemplateMatchingGPU:
         roi_size = self.plan.scores[roi_mask].size
 
         if self.mask_is_spherical:  # Then we only need to calculate std volume once
-            self.plan.mask_padded[pad_index] = self.plan.mask
+            self.plan.mask_padded[pad_index] = cp.sum(self.plan.mask,axis=1)
             self.plan.std_volume = (
                 std_under_mask_convolution(
                     self.plan.volume_rft_conj,
@@ -258,7 +267,7 @@ class TemplateMatchingGPU:
                     self.plan.mask_padded,
                     self.plan.mask_weight,
                 )
-                * self.plan.mask_weight
+                #* self.plan.mask_weight
             )
 
         # Track iterations with a tqdm progress bar
@@ -270,7 +279,7 @@ class TemplateMatchingGPU:
                 self.plan.mask_texture.transform(
                     rotation=(rotation[0], rotation[1], rotation[2]),
                     rotation_order="rzxz",
-                    output=self.plan.mask,
+                    output=self.plan.maskFB,
                     rotation_units="rad",
                 )
                 self.plan.mask_padded[pad_index] = self.plan.mask
@@ -284,15 +293,16 @@ class TemplateMatchingGPU:
                     )
                     * self.plan.mask_weight
                 )
-
+           
             # Rotate template
             self.plan.template_texture.transform(
                 rotation=(rotation[0], rotation[1], rotation[2]),
                 rotation_order="rzxz",
-                output=self.plan.template,
+                output=self.plan.templateFB,
                 rotation_units="rad",
             )
-
+            self.plan.template=cp.sum(self.plan.templateFB,axis=1)
+            self.plan.mask=cp.sum(self.plan.maskFB,axis=1)
             self.correlate(pad_index)
 
             # Update the scores and angle_lists
@@ -339,9 +349,14 @@ class TemplateMatchingGPU:
         # transformed and conjugated before the iterations this means the eventual
         # score map needs to be flipped back. The map is also rolled due to the ftshift
         # effect of a Fourier space correlation function.
-        self.plan.scores = cp.roll(cp.flip(self.plan.scores), shift, axis=(0, 1, 2))
-        self.plan.angles = cp.roll(cp.flip(self.plan.angles), shift, axis=(0, 1, 2))
-
+        
+        if len(self.plan.template_padded.shape)>2:
+            self.plan.scores = cp.roll(cp.flip(self.plan.scores), shift, axis=(0, 1, 2))
+            self.plan.angles = cp.roll(cp.flip(self.plan.angles), shift, axis=(0, 1, 2))
+        else:
+            self.plan.scores = cp.roll(cp.flip(self.plan.scores), shift, axis=(0, 1))
+            self.plan.angles = cp.roll(cp.flip(self.plan.angles), shift, axis=(0, 1))
+            
         self.stats["search_space"] = int(roi_size * len(self.angle_ids))
         self.stats["variance"] = float(self.stats["variance"] / len(self.angle_ids))
         self.stats["std"] = float(cp.sqrt(self.stats["variance"]))
