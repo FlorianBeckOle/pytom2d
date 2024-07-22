@@ -21,9 +21,9 @@ volume=read_mrc(basp+'/tmpOut/img_1.mrc')
 template=read_mrc(basp+'/tmpOut/riboSphere_3.mrc')
 mask = spherical_mask(t_size, (t_size/2)-1, 0.5)
 #gpu_id = "gpu:0"
-#angles = angle_to_angle_list(38.53)
+angles = angle_to_angle_list(10)
 nt=np.array([0,0,0],dtype=np.float64)
-angles=[]
+#angles=[]
 angles.append((nt[0],nt[1],nt[2]))
 
 
@@ -42,14 +42,22 @@ tm = TemplateMatchingGPU(
 score_volume, angle_volume, cc_map,stats = tm.run()# %%
 
 # %%
+ccval=cc_map.max()
+pos=np.unravel_index(cc_map.argmax(),cc_map.shape)
+angIdx=angle_volume[pos[0],pos[1]]
+print(pos[1],pos[0],ccval)
+
+# %%
 
 
 fig, axs = plt.subplots(1, 2)
 im1=axs[0].imshow(cc_map, cmap='gray')
 axs[0].set_title('CC Max Val:'+ str(cc_map.max()))
+axs[0].scatter(pos[1],pos[0], color='red', marker='x')
 axs[0].set_aspect('equal')
 #fig.colorbar(im1,ax=axs[0]);
 axs[1].imshow(volume, cmap='gray')
+axs[1].scatter(pos[1],pos[0], color='red', marker='x')
 axs[1].set_aspect('equal')
 
 
