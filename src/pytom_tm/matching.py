@@ -40,33 +40,34 @@ class TemplateMatchingPlan:
         """
         # Search volume + and fft transform plan for the volume
         volume_shape = volume.shape
+        self.inputDim=len(volume_shape)
+        if (self.inputDim==2):
+            self.template3dAllocChunk=cp.asarray(template, dtype=cp.float32, order="C")    
+        
+        #Volume
         cp_vol = cp.asarray(volume, dtype=cp.float32, order="C")
         self.volume_rft_conj = rfftn(cp_vol).conj()
         self.volume_sq_rft_conj = rfftn(cp_vol**2).conj()
-        # Explicit fft plan is no longer necessary as cupy generates a plan behind the scene which leads to
-        # comparable timings
-
-        # Array for storing local standard deviations
         self.std_volume = cp.zeros(volume_shape, dtype=cp.float32)
 
-        # Data for the mask
+        #Mask
         self.mask = cp.asarray(mask, dtype=cp.float32, order="C")
-        self.maskFB = cp.asarray(mask, dtype=cp.float32, order="C")
         self.mask_texture = vt.StaticVolume(
             self.mask, interpolation="filt_bspline", device=f"gpu:{device_id}"
         )
         self.mask_padded = cp.zeros(volume_shape, dtype=cp.float32)
         self.mask_weight = self.mask.sum()  # weight of the mask
-
+       
+        
         # Init template data
         self.template = cp.asarray(template, dtype=cp.float32, order="C")
-        self.templateFB=cp.asarray(template, dtype=cp.float32, order="C")
-        
         self.template_texture = vt.StaticVolume(
             self.template, interpolation="filt_bspline", device=f"gpu:{device_id}"
         )
         self.template_padded = cp.zeros(volume_shape, dtype=cp.float32)
-
+        
+        
+        #TODO adapt for ctf weighting
         # fourier binary wedge weight for the template
         self.wedge = (
             cp.asarray(wedge, order="C", dtype=cp.float32)
@@ -75,7 +76,7 @@ class TemplateMatchingPlan:
         )
 
         # Initialize result volumes
-        self.ccc_map = cp.zeros(volume_shape, dtype=cp.float32)
+        self.ccc_map = cp.zeros(volume_shape, dtype=cp.float32) #-1 ??
         self.scores = cp.ones(volume_shape, dtype=cp.float32) * -1000
         self.angles = cp.ones(volume_shape, dtype=cp.float32) * -1000
 
@@ -87,6 +88,8 @@ class TemplateMatchingPlan:
                 interpolation="filt_bspline",
                 device=f"gpu:{device_id}",
             )
+            if (self.inputDim==2):
+                self.random_phase_template2d=cp.asarray(template.sum(axis=1), dtype=cp.float32, order="C")
             self.noise_scores = cp.ones(volume_shape, dtype=cp.float32) * -1000
 
         # wait for stream to complete the work
@@ -99,11 +102,9 @@ class TemplateMatchingPlan:
             self.volume_rft_conj,
             self.volume_sq_rft_conj,
             self.mask,
-            self.maskFB,
             self.mask_texture,
             self.mask_padded,
             self.template,
-            self.templateFB,
             self.template_texture,
             self.template_padded,
             self.wedge,
@@ -111,6 +112,9 @@ class TemplateMatchingPlan:
             self.scores,
             self.angles,
             self.std_volume,
+        )
+        del (
+            self.template3dAllocChunk,
         )
         gc.collect()
         gpu_memory_pool.free_all_blocks()
@@ -184,7 +188,7 @@ class TemplateMatchingGPU:
         self.angle_ids = angle_ids
         self.stats = {"search_space": 0, "variance": 0.0, "std": 0.0}
         if stats_roi is None:
-            if (len(volume.shape)>2):
+            if (len(volume.shape)==3):
                 self.stats_roi = (slice(None), slice(None), slice(None))
             else:
                 self.stats_roi = (slice(None), slice(None))
@@ -227,7 +231,7 @@ class TemplateMatchingGPU:
         cxt, cyt, czt = sxt // 2, syt // 2, szt // 2
         mx, my, mz = sxt % 2, syt % 2, szt % 2  # odd or even
 
-        if (len(self.plan.template_padded.shape)>2):
+        if (self.plan.inputDim==3):
             # Size x volume (sxv) and center x volume (xcv)
             sxv, syv, szv = self.plan.template_padded.shape
             cxv, cyv, czv = sxv // 2, syv // 2, szv // 2
@@ -252,14 +256,14 @@ class TemplateMatchingGPU:
         shift = cp.floor(cp.array(self.plan.scores.shape) / 2).astype(int) + 1
         roi_mask = cp.zeros(self.plan.scores.shape, dtype=bool)
         roi_mask[self.stats_roi] = True
-        if len(self.plan.template_padded.shape)>2:
+        if (self.plan.inputDim==3):
             roi_mask = cp.flip(cp.roll(roi_mask, -shift, (0, 1, 2)))
         else:
             roi_mask = cp.flip(cp.roll(roi_mask, -shift, (0, 1)))
         roi_size = self.plan.scores[roi_mask].size
 
         if self.mask_is_spherical:  # Then we only need to calculate std volume once
-            self.plan.mask_padded[pad_index] = cp.sum(self.plan.mask,axis=1)
+            self.plan.mask_padded[pad_index] = cp.sum(self.plan.mask,axis=2)
             self.plan.std_volume = (
                 std_under_mask_convolution(
                     self.plan.volume_rft_conj,
@@ -267,19 +271,22 @@ class TemplateMatchingGPU:
                     self.plan.mask_padded,
                     self.plan.mask_weight,
                 )
-                #* self.plan.mask_weight
-            )
-
+                * self.plan.mask_weight #TODO:Fix !!
+                )
+            if (self.plan.inputDim==2):
+                self.plan.mask=cp.sum(self.plan.mask,axis=2)
+            
         # Track iterations with a tqdm progress bar
         for i in tqdm(range(len(self.angle_ids))):
             # tqdm cannot loop over zipped lists, so need to do it like this
             angle_id, rotation = self.angle_ids[i], self.angle_list[i]
 
             if not self.mask_is_spherical:
+                self.plan.mask=self.plan.template3dAllocChunk
                 self.plan.mask_texture.transform(
                     rotation=(rotation[0], rotation[1], rotation[2]),
                     rotation_order="rzxz",
-                    output=self.plan.maskFB,
+                    output=self.plan.mask,
                     rotation_units="rad",
                 )
                 self.plan.mask_padded[pad_index] = self.plan.mask
@@ -293,18 +300,23 @@ class TemplateMatchingGPU:
                     )
                     * self.plan.mask_weight
                 )
-           
+                if (self.plan.inputDim==2):
+                    self.plan.mask=cp.sum(self.plan.mask,axis=2)
             # Rotate template
             self.plan.template_texture.transform(
                 rotation=(rotation[0], rotation[1], rotation[2]),
                 rotation_order="rzxz",
-                output=self.plan.templateFB,
+                output=self.plan.template,
                 rotation_units="rad",
             )
-            self.plan.template=cp.sum(self.plan.templateFB,axis=1)
-            self.plan.mask=cp.sum(self.plan.maskFB,axis=1)
+            if (self.plan.inputDim==2):
+                self.plan.template=cp.sum(self.plan.template,axis=2)
+            
             self.correlate(pad_index)
-
+            if (self.plan.inputDim==2):
+                self.plan.template=self.plan.template3dAllocChunk
+           
+            
             # Update the scores and angle_lists
             update_results_kernel(
                 self.plan.scores,
@@ -350,19 +362,21 @@ class TemplateMatchingGPU:
         # score map needs to be flipped back. The map is also rolled due to the ftshift
         # effect of a Fourier space correlation function.
         
-        if len(self.plan.template_padded.shape)>2:
-            self.plan.scores = cp.roll(cp.flip(self.plan.scores), shift, axis=(0, 1, 2))
-            self.plan.angles = cp.roll(cp.flip(self.plan.angles), shift, axis=(0, 1, 2))
+        if (self.plan.inputDim==3):
+            axA=(0, 1, 2)
         else:
-            self.plan.scores = cp.roll(cp.flip(self.plan.scores), shift, axis=(0, 1))
-            self.plan.angles = cp.roll(cp.flip(self.plan.angles), shift, axis=(0, 1))
+            axA=(0, 1)           
+       
+        self.plan.scores = cp.roll(cp.flip(self.plan.scores), shift, axis=axA)
+        self.plan.angles = cp.roll(cp.flip(self.plan.angles), shift, axis=axA)
+        self.plan.ccc_map = cp.roll(cp.flip(self.plan.ccc_map), shift, axis=axA)
             
         self.stats["search_space"] = int(roi_size * len(self.angle_ids))
         self.stats["variance"] = float(self.stats["variance"] / len(self.angle_ids))
         self.stats["std"] = float(cp.sqrt(self.stats["variance"]))
 
         # package results back to the CPU
-        results = (self.plan.scores.get(), self.plan.angles.get(), self.stats)
+        results = (self.plan.scores.get(), self.plan.angles.get(),self.plan.ccc_map.get(), self.stats)
 
         # clear all the used gpu memory
         self.plan.clean()
