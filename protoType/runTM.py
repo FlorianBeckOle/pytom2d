@@ -42,7 +42,15 @@ tm = TemplateMatchingGPU(
 score_volume, angle_volume, cc_map,stats = tm.run()# %%
 
 # %%
-plt.imshow(cc_map, cmap='gray')
-plt.colorbar();
+
+
+fig, axs = plt.subplots(1, 2)
+im1=axs[0].imshow(cc_map, cmap='gray')
+axs[0].set_title('CC Max Val:'+ str(cc_map.max()))
+axs[0].set_aspect('equal')
+#fig.colorbar(im1,ax=axs[0]);
+axs[1].imshow(volume, cmap='gray')
+axs[1].set_aspect('equal')
+
 
 # %%

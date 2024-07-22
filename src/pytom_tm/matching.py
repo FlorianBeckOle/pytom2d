@@ -56,8 +56,11 @@ class TemplateMatchingPlan:
             self.mask, interpolation="filt_bspline", device=f"gpu:{device_id}"
         )
         self.mask_padded = cp.zeros(volume_shape, dtype=cp.float32)
-        self.mask_weight = self.mask.sum()  # weight of the mask
-       
+        if (self.inputDim==2):
+            self.mask_weight=cp.float32(cp.sum(self.mask>0,axis=2).get()).sum()    
+        else:
+            self.mask_weight = self.mask.sum()  # weight of the mask
+        
         
         # Init template data
         self.template = cp.asarray(template, dtype=cp.float32, order="C")
@@ -263,7 +266,11 @@ class TemplateMatchingGPU:
         roi_size = self.plan.scores[roi_mask].size
 
         if self.mask_is_spherical:  # Then we only need to calculate std volume once
-            self.plan.mask_padded[pad_index] = cp.sum(self.plan.mask,axis=2)
+            if (self.plan.inputDim==2):
+                self.plan.mask_padded[pad_index] = cp.sum(self.plan.mask,axis=2).astype(cp.float32)
+            else:
+                self.plan.mask_padded[pad_index] =self.plan.mask
+            
             self.plan.std_volume = (
                 std_under_mask_convolution(
                     self.plan.volume_rft_conj,
@@ -271,10 +278,10 @@ class TemplateMatchingGPU:
                     self.plan.mask_padded,
                     self.plan.mask_weight,
                 )
-                * self.plan.mask_weight #TODO:Fix !!
+                * self.plan.mask_weight 
                 )
             if (self.plan.inputDim==2):
-                self.plan.mask=cp.sum(self.plan.mask,axis=2)
+                self.plan.mask=cp.sum(self.plan.mask,axis=2).astype(cp.float32)
             
         # Track iterations with a tqdm progress bar
         for i in tqdm(range(len(self.angle_ids))):
@@ -302,7 +309,7 @@ class TemplateMatchingGPU:
                 )
                 if (self.plan.inputDim==2):
                     self.plan.mask=cp.sum(self.plan.mask,axis=2)
-            # Rotate template
+            # Rotate template # TODO Rotate inplate after proj
             self.plan.template_texture.transform(
                 rotation=(rotation[0], rotation[1], rotation[2]),
                 rotation_order="rzxz",
