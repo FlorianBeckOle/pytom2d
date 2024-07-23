@@ -57,7 +57,7 @@ class TemplateMatchingPlan:
         )
         self.mask_padded = cp.zeros(volume_shape, dtype=cp.float32)
         if (self.inputDim==2):
-            self.mask_weight=cp.float32(cp.sum(self.mask>0,axis=2).get()).sum()    
+            self.mask_weight=(cp.sum(self.mask, axis=2) > 0.1).astype(cp.float32).sum()
         else:
             self.mask_weight = self.mask.sum()  # weight of the mask
         
@@ -267,7 +267,10 @@ class TemplateMatchingGPU:
 
         if self.mask_is_spherical:  # Then we only need to calculate std volume once
             if (self.plan.inputDim==2):
-                self.plan.mask_padded[pad_index] = cp.sum(self.plan.mask,axis=2).astype(cp.float32)
+                self.plan.mask_padded[pad_index] =(cp.sum(self.plan.mask, axis=2) > 0.1).astype(cp.float32)
+                #self.plan.mask=cp.astype(cp.sum(self.plan.mask,axis=2)>0,cp.float32)
+                #self.plan.mask_padded[pad_index]=self.plan.mask
+                #self.plan.mask_padded[pad_index] = cp.sum(self.plan.mask,axis=2).astype(cp.float32)
             else:
                 self.plan.mask_padded[pad_index] =self.plan.mask
             
@@ -281,22 +284,31 @@ class TemplateMatchingGPU:
                 * self.plan.mask_weight 
                 )
             if (self.plan.inputDim==2):
-                self.plan.mask=cp.sum(self.plan.mask,axis=2).astype(cp.float32)
+                self.plan.mask=(cp.sum(self.plan.mask, axis=2) > 0.1).astype(cp.float32)
+                #self.plan.mask=cp.sum(self.plan.mask,axis=2).astype(cp.float32)
             
         # Track iterations with a tqdm progress bar
         for i in tqdm(range(len(self.angle_ids))):
             # tqdm cannot loop over zipped lists, so need to do it like this
+            
             angle_id, rotation = self.angle_ids[i], self.angle_list[i]
 
             if not self.mask_is_spherical:
-                self.plan.mask=self.plan.template3dAllocChunk
+                if (self.plan.inputDim==2):
+                    self.plan.mask=self.plan.template3dAllocChunk
+                
                 self.plan.mask_texture.transform(
                     rotation=(rotation[0], rotation[1], rotation[2]),
                     rotation_order="rzxz",
                     output=self.plan.mask,
                     rotation_units="rad",
                 )
-                self.plan.mask_padded[pad_index] = self.plan.mask
+                if (self.plan.inputDim==2):
+                    #self.plan.mask_padded[pad_index] = cp.sum(self.plan.mask,axis=2).astype(cp.float32)
+                    self.plan.mask_weight=(cp.sum(self.plan.mask, axis=2) > 0.5).astype(cp.float32).sum()
+                    self.plan.mask_padded[pad_index] =(cp.sum(self.plan.mask, axis=2) > 0.5).astype(cp.float32)
+                else:
+                    self.plan.mask_padded[pad_index] = self.plan.mask
                 # Std volume needs to be recalculated for every rotation of the mask, expensive step
                 self.plan.std_volume = (
                     std_under_mask_convolution(
@@ -308,7 +320,9 @@ class TemplateMatchingGPU:
                     * self.plan.mask_weight
                 )
                 if (self.plan.inputDim==2):
-                    self.plan.mask=cp.sum(self.plan.mask,axis=2)
+                    self.plan.mask=(cp.sum(self.plan.mask, axis=2) > 0.5).astype(cp.float32)
+                    #self.plan.mask=cp.sum(self.plan.mask,axis=2)
+            
             # Rotate template # TODO Rotate inplate after proj
             self.plan.template_texture.transform(
                 rotation=(rotation[0], rotation[1], rotation[2]),
@@ -336,7 +350,7 @@ class TemplateMatchingGPU:
             self.stats["variance"] += (
                 square_sum_kernel(self.plan.ccc_map * roi_mask) / roi_size
             )
-
+             
             if self.noise_correction:
                 # Rotate noise template texture into template
                 self.plan.random_phase_template_texture.transform(
@@ -383,7 +397,7 @@ class TemplateMatchingGPU:
         self.stats["std"] = float(cp.sqrt(self.stats["variance"]))
 
         # package results back to the CPU
-        results = (self.plan.scores.get(), self.plan.angles.get(),self.plan.ccc_map.get(), self.stats)
+        results = (self.plan.scores.get(), self.plan.angles.get(), self.stats)
 
         # clear all the used gpu memory
         self.plan.clean()
@@ -425,7 +439,8 @@ class TemplateMatchingGPU:
             )
             / self.plan.std_volume
         )
-
+        if (self.plan.ccc_map.max()>1.0001):
+            print("dbg: cc:"+str(self.plan.ccc_map.max()) + " std:" + str(self.plan.std_volume.min()) + " maskWei: " + str(self.plan.mask_weight) )
 
 def std_under_mask_convolution(
     volume_rft_conj: cpt.NDArray[float],
@@ -458,7 +473,7 @@ def std_under_mask_convolution(
         - (irfftn(volume_rft_conj * padded_mask_rft, s=padded_mask.shape) / mask_weight)
         ** 2
     )
-    std_v[std_v <= cp.float32(1e-18)] = (
+    std_v[std_v <= cp.float32(1e-7)] = (
         1  # prevent potential sqrt of negative value and division by zero
     )
     std_v = cp.sqrt(std_v)
