@@ -116,9 +116,10 @@ class TemplateMatchingPlan:
             self.angles,
             self.std_volume,
         )
-        del (
-            self.template3dAllocChunk,
-        )
+        if (self.inputDim==2):
+            del (
+                self.template3dAllocChunk,
+            )
         gc.collect()
         gpu_memory_pool.free_all_blocks()
 

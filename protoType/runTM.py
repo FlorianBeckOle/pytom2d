@@ -8,17 +8,27 @@ from pytom_tm.matching import TemplateMatchingGPU
 import numpy as np
 from matplotlib import pyplot as plt
 from pytom_tm.io import read_mrc,write_mrc
+from pytom_tm.weights import create_ctf
 
 # %%
 t_size = 64
+
 basp="../data/"
 volume=read_mrc(basp+'img_1.mrc')
 template=read_mrc(basp+'riboSphere_3.mrc')
 mask=read_mrc(basp+'/maskTmpl.mrc')
 
 maskIsSpherical=False
-angles=angle_to_angle_list(9) #ang list with increment 9
-
+angles=angle_to_angle_list(12) #ang list with increment 9
+pixS=1 #in Ang
+defocus=0.15 #in mue here very small used to reduce sampling artifacts
+ampToPhaseRat=0.08
+volt=300
+cs=2.7
+print("sampling of ctf is too small in this example")
+ctf = create_ctf([t_size,t_size], pixS * 1e-10, defocus*1e-6,ampToPhaseRat , volt*1e3, cs*1e-3)
+plt.imshow(ctf)        
+#ctf=None #use none to switch ctf correction off!
 
 
 # %%
@@ -32,6 +42,7 @@ tm = TemplateMatchingGPU(
             angles,
             list(range(len(angles))),
             maskIsSpherical,
+            ctf
         )
 
 score_volume, angle_volume,stats = tm.run()# %%
