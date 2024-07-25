@@ -1,6 +1,7 @@
 from packaging import version
 import pandas as pd
 import numpy as np
+import math
 import numpy.typing as npt
 import logging
 import scipy.ndimage as ndimage
@@ -248,8 +249,8 @@ def extract_particles(
 
     # mask for iteratively selecting peaks
     cut_box = int(particle_radius_px) * 2 + 1
-    cut_mask = (spherical_mask(cut_box, particle_radius_px, cut_box // 2) == 0) * 1
-    cut_mask = cut_mask.sum(axis=2)
+    cut_mask = (spherical_mask(cut_box, particle_radius_px-1) == 0) * 1
+    cut_mask = cut_mask[:,:,math.floor(cut_mask.shape[2]/2)+1]
     
     # data for star file
     pixel_size = job.voxel_size
