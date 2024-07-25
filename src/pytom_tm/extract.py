@@ -218,12 +218,19 @@ def extract_particles(
         score_volume[tomogram_mask <= 0] = 0
 
     # mask edges of score volume
-    score_volume[0:particle_radius_px, :, :] = 0
-    score_volume[:, 0:particle_radius_px, :] = 0
-    score_volume[:, :, 0:particle_radius_px] = 0
-    score_volume[-particle_radius_px:, :, :] = 0
-    score_volume[:, -particle_radius_px:, :] = 0
-    score_volume[:, :, -particle_radius_px:] = 0
+    if (score_volume.ndim==3):
+        score_volume[0:particle_radius_px, :, :] = 0
+        score_volume[:, 0:particle_radius_px, :] = 0
+        score_volume[:, :, 0:particle_radius_px] = 0
+        score_volume[-particle_radius_px:, :, :] = 0
+        score_volume[:, -particle_radius_px:, :] = 0
+        score_volume[:, :, -particle_radius_px:] = 0
+    else:
+        score_volume[0:particle_radius_px, :] = 0
+        score_volume[:, 0:particle_radius_px,] = 0
+        score_volume[-particle_radius_px:, :] = 0
+        score_volume[:, -particle_radius_px:] = 0
+         
 
     sigma = job.job_stats["std"]
     search_space = job.job_stats["search_space"]
@@ -242,7 +249,8 @@ def extract_particles(
     # mask for iteratively selecting peaks
     cut_box = int(particle_radius_px) * 2 + 1
     cut_mask = (spherical_mask(cut_box, particle_radius_px, cut_box // 2) == 0) * 1
-
+    cut_mask = cut_mask.sum(axis=2)
+    
     # data for star file
     pixel_size = job.voxel_size
     tomogram_id = job.tomo_id
@@ -270,48 +278,87 @@ def extract_particles(
         )
 
         location = [i + o for i, o in zip(job.search_origin, ind)]
-
-        data.append(
-            (
-                location[0],  # CoordinateX
-                location[1],  # CoordinateY
-                location[2],  # CoordinateZ
-                rotation[0],  # AngleRot
-                rotation[1],  # AngleTilt
-                rotation[2],  # AnglePsi
-                lcc_max,  # LCCmax
-                cut_off,  # Extraction cut off
-                sigma,  # Add sigma of template matching search, LCCmax can be divided by sigma to obtain SNR
-                pixel_size,  # DetectorPixelSize
-                tomogram_id,  # MicrographName
-            )
-        )
+        if len(location)==3:
+            data.append(
+                (
+                    location[0],  # CoordinateX
+                    location[1],  # CoordinateY
+                    location[2],  # CoordinateZ
+                    rotation[0],  # AngleRot
+                    rotation[1],  # AngleTilt
+                    rotation[2],  # AnglePsi
+                    lcc_max,  # LCCmax
+                    cut_off,  # Extraction cut off
+                    sigma,  # Add sigma of template matching search, LCCmax can be divided by sigma to obtain SNR
+                    pixel_size,  # DetectorPixelSize
+                    tomogram_id,  # MicrographName
+                )
+                )
+        else:
+            data.append(
+                (
+                    location[0],  # CoordinateX
+                    location[1],  # CoordinateY
+                    rotation[0],  # AngleRot
+                    rotation[1],  # AngleTilt
+                    rotation[2],  # AnglePsi
+                    lcc_max,  # LCCmax
+                    cut_off,  # Extraction cut off
+                    sigma,  # Add sigma of template matching search, LCCmax can be divided by sigma to obtain SNR
+                    pixel_size,  # DetectorPixelSize
+                    tomogram_id,  # MicrographName
+                )
+                )    
 
         # box out the particle
         start = [i - particle_radius_px for i in ind]
-        score_volume[
-            start[0] : start[0] + cut_box,
-            start[1] : start[1] + cut_box,
-            start[2] : start[2] + cut_box,
-        ] *= cut_mask
+        if len(start)>2:
+            score_volume[
+                start[0] : start[0] + cut_box,
+                start[1] : start[1] + cut_box,
+                start[2] : start[2] + cut_box,
+            ] *= cut_mask
+        else:
+            score_volume[
+                start[0] : start[0] + cut_box,
+                start[1] : start[1] + cut_box,
+            ] *= cut_mask    
 
-    output = pd.DataFrame(
-        data,
-        columns=[
-            "rlnCoordinateX",
-            "rlnCoordinateY",
-            "rlnCoordinateZ",
-            "rlnAngleRot",
-            "rlnAngleTilt",
-            "rlnAnglePsi",
-            "rlnLCCmax",
-            "rlnCutOff",
-            "rlnSearchStd",
-            "rlnDetectorPixelSize",
-            "rlnMicrographName",
-        ],
-    )
-
+    if len(location)==3:
+        output = pd.DataFrame(
+            data,
+            columns=[
+                "rlnCoordinateX",
+                "rlnCoordinateY",
+                "rlnCoordinateZ",
+                "rlnAngleRot",
+                "rlnAngleTilt",
+                "rlnAnglePsi",
+                "rlnLCCmax",
+                "rlnCutOff",
+                "rlnSearchStd",
+                "rlnDetectorPixelSize",
+                "rlnMicrographName",
+            ],
+        )
+    else:
+        output = pd.DataFrame(
+            data,
+            columns=[
+                "rlnCoordinateX",
+                "rlnCoordinateY",
+                "rlnAngleRot",
+                "rlnAngleTilt",
+                "rlnAnglePsi",
+                "rlnLCCmax",
+                "rlnCutOff",
+                "rlnSearchStd",
+                "rlnDetectorPixelSize",
+                "rlnMicrographName",
+            ],
+        )
+    
+    
     if relion5_compat:
         dims = np.array(job.tomo_shape)
         center = dims / 2 - 1
@@ -328,6 +375,7 @@ def extract_particles(
         }
         output = output.rename(columns=column_change)
 
+    create_plot=True
     if plotting_available and create_plot:
         y, bins = np.histogram(scores, bins=20)
         x = (bins[1:] + bins[:-1]) / 2
@@ -349,7 +397,7 @@ def extract_particles(
         plt.tight_layout()
         plt.savefig(
             job.output_dir.joinpath(f"{job.tomo_id}_extraction_graph.svg"),
-            dpi=600,
+            dpi=300,
             transparent=False,
             bbox_inches="tight",
         )

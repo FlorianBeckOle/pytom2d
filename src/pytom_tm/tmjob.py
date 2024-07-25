@@ -17,6 +17,7 @@ from pytom_tm.weights import (
     power_spectrum_profile,
     profile_to_weighting,
     create_gaussian_band_pass,
+    create_ctf
 )
 from pytom_tm.io import read_mrc_meta_data, read_mrc, write_mrc, UnequalSpacingError
 from pytom_tm import __version__ as PYTOM_TM_VERSION
@@ -343,9 +344,15 @@ class TMJob:
                 " annotated as 0."
             )
 
-        search_origin = [
-            x[0] if x is not None else 0 for x in (search_x, search_y, search_z)
-        ]
+        if (search_z>1):
+            search_origin = [
+                x[0] if x is not None else 0 for x in (search_x, search_y, search_z)
+            ]
+        else:
+            search_origin = [
+                x[0] if x is not None else 0 for x in (search_x, search_y)
+            ]     
+        
         # Check if tomogram origin is valid
         if all([0 <= x < y for x, y in zip(search_origin, self.tomo_shape)]):
             self.search_origin = search_origin
@@ -355,6 +362,8 @@ class TMJob:
         # if end not valid raise and error
         search_end = []
         for x, s in zip([search_x, search_y, search_z], self.tomo_shape):
+            if(s==1):
+                break
             if x is not None:
                 if not x[1] <= s:
                     raise ValueError(
@@ -491,10 +500,13 @@ class TMJob:
             self.search_origin[1],
             self.search_origin[1] + self.search_size[1],
         ]
-        d["search_z"] = [
-            self.search_origin[2],
-            self.search_origin[2] + self.search_size[2],
-        ]
+        if (len(self.search_size)>2):
+            d["search_z"] = [
+                self.search_origin[2],
+                self.search_origin[2] + self.search_size[2],
+            ]
+        else:
+            d["search_z"] =1    
         for key, value in d.items():
             if isinstance(value, pathlib.Path):
                 d[key] = str(value)
@@ -678,32 +690,55 @@ class TMJob:
                 angles = np.where(s == scores, np.minimum(a, angles), angles)
                 scores = np.where(s > scores, s, scores)
         else:
+            if (self.search_size[2]==1):
+                self.search_size=self.search_size[:2]
             scores, angles = (
                 np.zeros(self.search_size, dtype=np.float32),
                 np.zeros(self.search_size, dtype=np.float32),
             )
             for job, s, a in zip(self.sub_jobs, score_volumes, angle_volumes):
-                sub_scores = s[
-                    job.sub_start[0] : job.sub_start[0] + job.sub_step[0],
-                    job.sub_start[1] : job.sub_start[1] + job.sub_step[1],
-                    job.sub_start[2] : job.sub_start[2] + job.sub_step[2],
-                ]
-                sub_angles = a[
-                    job.sub_start[0] : job.sub_start[0] + job.sub_step[0],
-                    job.sub_start[1] : job.sub_start[1] + job.sub_step[1],
-                    job.sub_start[2] : job.sub_start[2] + job.sub_step[2],
-                ]
-                # Then the corrected sub part needs to be placed back into the full volume
-                scores[
-                    job.whole_start[0] : job.whole_start[0] + sub_scores.shape[0],
-                    job.whole_start[1] : job.whole_start[1] + sub_scores.shape[1],
-                    job.whole_start[2] : job.whole_start[2] + sub_scores.shape[2],
-                ] = sub_scores
-                angles[
-                    job.whole_start[0] : job.whole_start[0] + sub_scores.shape[0],
-                    job.whole_start[1] : job.whole_start[1] + sub_scores.shape[1],
-                    job.whole_start[2] : job.whole_start[2] + sub_scores.shape[2],
-                ] = sub_angles
+                if (score_volumes[0].ndim)==3:
+                    sub_scores = s[
+                        job.sub_start[0] : job.sub_start[0] + job.sub_step[0],
+                        job.sub_start[1] : job.sub_start[1] + job.sub_step[1],
+                        job.sub_start[2] : job.sub_start[2] + job.sub_step[2],
+                    ]
+                    sub_angles = a[
+                        job.sub_start[0] : job.sub_start[0] + job.sub_step[0],
+                        job.sub_start[1] : job.sub_start[1] + job.sub_step[1],
+                        job.sub_start[2] : job.sub_start[2] + job.sub_step[2],
+                    ]
+                    # Then the corrected sub part needs to be placed back into the full volume
+                    scores[
+                        job.whole_start[0] : job.whole_start[0] + sub_scores.shape[0],
+                        job.whole_start[1] : job.whole_start[1] + sub_scores.shape[1],
+                        job.whole_start[2] : job.whole_start[2] + sub_scores.shape[2],
+                    ] = sub_scores
+                    angles[
+                        job.whole_start[0] : job.whole_start[0] + sub_scores.shape[0],
+                        job.whole_start[1] : job.whole_start[1] + sub_scores.shape[1],
+                        job.whole_start[2] : job.whole_start[2] + sub_scores.shape[2],
+                    ] = sub_angles
+                else:
+                    sub_scores = s[
+                        job.sub_start[0] : job.sub_start[0] + job.sub_step[0],
+                        job.sub_start[1] : job.sub_start[1] + job.sub_step[1],
+                        ]
+                    sub_angles = a[
+                        job.sub_start[0] : job.sub_start[0] + job.sub_step[0],
+                        job.sub_start[1] : job.sub_start[1] + job.sub_step[1],
+                        ]
+                    # Then the corrected sub part needs to be placed back into the full volume
+                    scores[
+                        job.whole_start[0] : job.whole_start[0] + sub_scores.shape[0],
+                        job.whole_start[1] : job.whole_start[1] + sub_scores.shape[1],
+                        ] = sub_scores
+                    angles[
+                        job.whole_start[0] : job.whole_start[0] + sub_scores.shape[0],
+                        job.whole_start[1] : job.whole_start[1] + sub_scores.shape[1],
+                       ] = sub_angles
+                    
+                        
         return scores, angles
 
     def start_job(
@@ -730,27 +765,43 @@ class TMJob:
         logging.debug(
             f"Next fast fft shape: {tuple([next_fast_len(s, real=True) for s in self.search_size])}"
         )
+        szTmp=[next_fast_len(s, real=True) for s in self.search_size]
+        if (szTmp[2]==1):
+            szTmp=szTmp[:2]
         search_volume = np.zeros(
-            tuple([next_fast_len(s, real=True) for s in self.search_size]),
+            tuple(szTmp),
             dtype=np.float32,
         )
 
+        if (self.search_size[2]>1):
         # load the (sub)volume
-        search_volume[
-            : self.search_size[0], : self.search_size[1], : self.search_size[2]
-        ] = np.ascontiguousarray(
-            read_mrc(self.tomogram)[
-                self.search_origin[0] : self.search_origin[0] + self.search_size[0],
-                self.search_origin[1] : self.search_origin[1] + self.search_size[1],
-                self.search_origin[2] : self.search_origin[2] + self.search_size[2],
-            ]
-        )
+            search_volume[
+                : self.search_size[0], : self.search_size[1], : self.search_size[2]
+            ] = np.ascontiguousarray(
+                read_mrc(self.tomogram)[
+                    self.search_origin[0] : self.search_origin[0] + self.search_size[0],
+                    self.search_origin[1] : self.search_origin[1] + self.search_size[1],
+                    self.search_origin[2] : self.search_origin[2] + self.search_size[2],
+                ]
+            )
+        else:
+            search_volume[
+                : self.search_size[0], : self.search_size[1]
+            ] = np.ascontiguousarray(
+                read_mrc(self.tomogram)[
+                    self.search_origin[0] : self.search_origin[0] + self.search_size[0],
+                    self.search_origin[1] : self.search_origin[1] + self.search_size[1],
+                    
+                ]
+            )
+
 
         # load template and mask
         template, mask = (read_mrc(self.template), read_mrc(self.mask))
         # apply mask directly to prevent any wedge convolution with weird edges
         template *= mask
-
+        
+        
         # init tomogram and template weighting
         tomo_filter, template_wedge = 1, 1
         # first generate bandpass filters
@@ -761,7 +812,8 @@ class TMJob:
             template_wedge *= create_gaussian_band_pass(
                 self.template_shape, self.voxel_size, self.low_pass, self.high_pass
             ).astype(np.float32)
-
+            
+            
         # then multiply with optional whitening filters
         if self.whiten_spectrum:
             tomo_filter *= profile_to_weighting(
@@ -774,6 +826,7 @@ class TMJob:
         # if tilt angles are provided we can create wedge filters
         if self.tilt_angles is not None:
             # for the tomogram a binary wedge is generated to explicitly set the missing wedge region to 0
+            
             tomo_filter *= create_wedge(
                 search_volume.shape,
                 self.tilt_angles,
@@ -806,6 +859,11 @@ class TMJob:
                     self.voxel_size,
                 )
 
+        if self.ctf_data is not None and search_volume.ndim<3:
+            
+            tomo_filter = create_ctf(search_volume.shape,self.voxel_size* 1e-10, self.ctf_data)
+            template_wedge = create_ctf(search_volume.shape, self.voxel_size * 1e-10, self.ctf_data)
+            
         # apply the optional band pass and whitening filter to the search region
         search_volume = np.real(
             irfftn(rfftn(search_volume) * tomo_filter, s=search_volume.shape)
@@ -830,6 +888,8 @@ class TMJob:
             slice(self.sub_start[1], self.sub_start[1] + self.sub_step[1]),
             slice(self.sub_start[2], self.sub_start[2] + self.sub_step[2]),
         )
+        if (search_volume.ndim==2):
+            search_volume_roi=search_volume_roi[:2]
 
         tm = TemplateMatchingGPU(
             job_id=self.job_key,
@@ -846,12 +906,22 @@ class TMJob:
             rng_seed=self.rng_seed,
         )
         results = tm.run()
-        score_volume = results[0][
-            : self.search_size[0], : self.search_size[1], : self.search_size[2]
-        ]
-        angle_volume = results[1][
-            : self.search_size[0], : self.search_size[1], : self.search_size[2]
-        ]
+        
+        if (search_volume.ndim==3):
+            score_volume = results[0][
+                : self.search_size[0], : self.search_size[1], : self.search_size[2]
+            ]
+            angle_volume = results[1][
+                : self.search_size[0], : self.search_size[1], : self.search_size[2]
+            ]
+        else:
+            score_volume = results[0][
+                : self.search_size[0], : self.search_size[1]
+            ]
+            angle_volume = results[1][
+                : self.search_size[0], : self.search_size[1]
+            ]
+        
         self.job_stats = results[2]
 
         del tm  # delete the template matching plan

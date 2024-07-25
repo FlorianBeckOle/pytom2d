@@ -510,6 +510,7 @@ def extract_candidates(argv=None):
 
 
 def match_template(argv=None):
+   
     from pytom_tm.tmjob import TMJob
     from pytom_tm.parallel import run_job_parallel
 
@@ -651,7 +652,7 @@ def match_template(argv=None):
         "--tilt-angles",
         nargs="+",
         type=str,
-        required=True,
+        required=False,
         action=ParseTiltAngles,
         help="Tilt angles of the tilt-series, either the minimum and maximum values of "
         "the tilts (e.g. --tilt-angles -59.1 60.1) or a .rawtlt/.tlt file with all the "
