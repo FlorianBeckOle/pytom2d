@@ -344,14 +344,19 @@ class TMJob:
                 " annotated as 0."
             )
 
-        if (search_z>1):
+        if (search_x is None):
             search_origin = [
                 x[0] if x is not None else 0 for x in (search_x, search_y, search_z)
             ]
-        else:
-            search_origin = [
-                x[0] if x is not None else 0 for x in (search_x, search_y)
-            ]     
+        else:    
+            if search_z>1:
+                search_origin = [
+                    x[0] if x is not None else 0 for x in (search_x, search_y, search_z)
+                ]
+            else:
+                search_origin = [
+                    x[0] if x is not None else 0 for x in (search_x, search_y)
+                ]     
         
         # Check if tomogram origin is valid
         if all([0 <= x < y for x, y in zip(search_origin, self.tomo_shape)]):
@@ -589,7 +594,11 @@ class TMJob:
 
         x_splits = _determine_1D_fft_splits(search_size[0], split[0], overhang[0])
         y_splits = _determine_1D_fft_splits(search_size[1], split[1], overhang[1])
-        z_splits = _determine_1D_fft_splits(search_size[2], split[2], overhang[2])
+        
+        if (len(search_size)==3):
+            z_splits = _determine_1D_fft_splits(search_size[2], split[2], overhang[2])
+        else:
+            z_splits = _determine_1D_fft_splits(1, split[2], overhang[2])    
 
         sub_jobs = []
         for i, data_3D in enumerate(itt.product(x_splits, y_splits, z_splits)):
@@ -690,8 +699,10 @@ class TMJob:
                 angles = np.where(s == scores, np.minimum(a, angles), angles)
                 scores = np.where(s > scores, s, scores)
         else:
-            if (self.search_size[2]==1):
-                self.search_size=self.search_size[:2]
+            if (len(self.search_size)>2):
+                if (self.search_size[2]==1):
+                    self.search_size=self.search_size[:2]
+            
             scores, angles = (
                 np.zeros(self.search_size, dtype=np.float32),
                 np.zeros(self.search_size, dtype=np.float32),
