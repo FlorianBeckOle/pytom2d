@@ -426,7 +426,7 @@ class TMJob:
             raise TMJobError("Invalid angular search provided.")
 
         self.n_rotations = len(angle_list)
-
+        self.local_rotations = None
         # missing wedge
         self.tilt_angles = tilt_angles
         self.tilt_weighting = tilt_weighting
@@ -777,14 +777,22 @@ class TMJob:
             f"Next fast fft shape: {tuple([next_fast_len(s, real=True) for s in self.search_size])}"
         )
         szTmp=[next_fast_len(s, real=True) for s in self.search_size]
-        if (szTmp[2]==1):
-            szTmp=szTmp[:2]
+        if (len(szTmp)>2):
+            if (szTmp[2]==1):
+                szTmp=szTmp[:2]
+        
         search_volume = np.zeros(
             tuple(szTmp),
             dtype=np.float32,
         )
-
-        if (self.search_size[2]>1):
+        do3d=True
+        if len(self.search_size)==2:
+            do3d=False        
+        else:
+            if (self.search_size[2]==1):
+                do3d=False
+            
+        if do3d:
         # load the (sub)volume
             search_volume[
                 : self.search_size[0], : self.search_size[1], : self.search_size[2]
@@ -894,13 +902,20 @@ class TMJob:
         ]
 
         # slices for relevant part for job statistics
-        search_volume_roi = (
-            slice(self.sub_start[0], self.sub_start[0] + self.sub_step[0]),
-            slice(self.sub_start[1], self.sub_start[1] + self.sub_step[1]),
-            slice(self.sub_start[2], self.sub_start[2] + self.sub_step[2]),
-        )
-        if (search_volume.ndim==2):
-            search_volume_roi=search_volume_roi[:2]
+        if (search_volume.ndim==3):
+            search_volume_roi = (
+                slice(self.sub_start[0], self.sub_start[0] + self.sub_step[0]),
+                slice(self.sub_start[1], self.sub_start[1] + self.sub_step[1]),
+                slice(self.sub_start[2], self.sub_start[2] + self.sub_step[2]),
+            )
+        else:
+            search_volume_roi = (
+                slice(self.sub_start[0], self.sub_start[0] + self.sub_step[0]),
+                slice(self.sub_start[1], self.sub_start[1] + self.sub_step[1]),
+            )
+            
+        # if (search_volume.ndim==2):
+        #     search_volume_roi=search_volume_roi[:2]
 
         tm = TemplateMatchingGPU(
             job_id=self.job_key,
