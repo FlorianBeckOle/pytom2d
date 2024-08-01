@@ -586,6 +586,8 @@ class TMJob:
             new_job.local_rotations=angle_to_angle_list_local(pr.ptmInplaneInc,pr.ptmInplaneRange,
                                                               pr.ptmConeInc,pr.ptmConeRange,
                                                               centAng)
+            #new_job.local_rotations=[]
+            #new_job.local_rotations.append([-0.6283185307179586,1.5707963267948966,0.8377580409572781])
             new_job.leader = self.job_key
             new_job.job_key = self.job_key + str(i)
             i+=1

@@ -89,14 +89,15 @@ def angle_to_angle_list_local(
         euler_out[2] = np.arccos(rott[2, 2])
         
         # Convert Euler angles from radians to degrees
-        euler_out = np.rad2deg(euler_out)
+        #euler_out = np.rad2deg(euler_out)
         
         if -(rott[2, 2] - 1) < 10e-8:
             euler_out[2] = 0
             euler_out[1] = 0
-            euler_out[0] = np.rad2deg(np.arctan2(rott[1, 0], rott[0, 0]))
+            euler_out[0] = np.arctan2(rott[1, 0], rott[0, 0])
+            #euler_out[0] = np.rad2deg(np.arctan2(rott[1, 0], rott[0, 0]))
         
-        angSR.append([euler_out[0],euler_out[2],euler_out[1]])
+        angSR.append([euler_out[0],euler_out[1],euler_out[2]])
         
     if sort_angles:
         angSR.sort()
