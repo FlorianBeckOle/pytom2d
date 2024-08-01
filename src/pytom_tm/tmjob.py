@@ -8,9 +8,10 @@ import numpy as np
 import numpy.typing as npt
 import json
 import logging
+import starfile
 from typing import Optional, Union
 from scipy.fft import next_fast_len, rfftn, irfftn
-from pytom_tm.angles import get_angle_list
+from pytom_tm.angles import get_angle_list, angle_to_angle_list_local
 from pytom_tm.matching import TemplateMatchingGPU
 from pytom_tm.weights import (
     create_wedge,
@@ -211,6 +212,7 @@ class TMJob:
         output_dir: pathlib.Path,
         angle_increment: Optional[Union[str, float]] = None,
         mask_is_spherical: bool = True,
+        priorFile: pathlib.Path = None,
         tilt_angles: Optional[list[float, ...]] = None,
         tilt_weighting: bool = False,
         search_x: Optional[list[int, int]] = None,
@@ -296,7 +298,8 @@ class TMJob:
         self.tomogram = tomogram
         self.template = template
         self.tomo_id = self.tomogram.stem
-
+        self.priorFile = priorFile
+        
         try:
             meta_data_tomo = read_mrc_meta_data(self.tomogram)
         except UnequalSpacingError:  # add information that the problem is the tomogram
@@ -550,6 +553,49 @@ class TMJob:
 
         return self.sub_jobs
 
+    def gen_jobs_from_priorFile(self,priorFile)-> list[TMJob, ...]:
+        
+        if len(self.sub_jobs) > 0:
+            raise TMJobError(
+                "Could not further split this job as it already has subjobs assigned!"
+            )
+        
+        prior=[]
+        prior=starfile.read(priorFile)
+        # with open(pr, 'r') as file:
+        #     for line in file:
+        #        values=line.split(" ")
+        #        float_values = tuple(float(value) for value in values)
+        #        prior.append(float_values)
+                
+        sub_jobs = []             
+        i=0
+        for pr in prior.itertuples(index=True, name='Pandas'):
+            
+            new_job = self.copy()
+            new_job.search_origin = [int(pr.ptmCoordinateX),int(pr.ptmCoordinateY),int(pr.ptmCoordinateZ)]
+            new_job.search_size = [int(pr.ptmBoxSize),int(pr.ptmBoxSize),1]
+            # whole start is the start of the unique data within the complete searched array
+            new_job.whole_start = [int(pr.ptmCoordinateX),int(pr.ptmCoordinateY),int(pr.ptmCoordinateZ)]
+            # sub_start is where the unique data starts inside the split array
+            #new_job.sub_start = [int(pr[0]),int(pr[1]),int(pr[2])]
+            #new_job.sub_step = [int(pr[3]),int(pr[3]),1]
+            new_job.sub_start = [int(0),int(0),int(1)]
+            new_job.sub_step = [int(pr.ptmBoxSize),int(pr.ptmBoxSize),1]
+            centAng=[pr.ptmAnglePhi,pr.ptmAnglePsi,pr.ptmAngleTheta]
+            new_job.local_rotations=angle_to_angle_list_local(pr.ptmInplaneInc,pr.ptmInplaneRange,
+                                                              pr.ptmConeInc,pr.ptmConeRange,
+                                                              centAng)
+            new_job.leader = self.job_key
+            new_job.job_key = self.job_key + str(i)
+            i+=1
+            sub_jobs.append(new_job)
+
+        self.sub_jobs = sub_jobs
+
+        return self.sub_jobs
+        
+        
     def split_volume_search(self, split: tuple[int, int, int]) -> list[TMJob, ...]:
         """Split the search into sub_jobs by dividing into subvolumes. Final number of subvolumes is obtained by
         multiplying all the split together, e.g. (2, 2, 1) results in 4 subvolumes. Sub jobs will obtain the key
@@ -897,10 +943,13 @@ class TMJob:
             symmetry=self.rotational_symmetry,
         )
 
-        angle_list = angle_list[
-            slice(self.start_slice, self.n_rotations, self.steps_slice)
-        ]
-
+        if (self.priorFile is None):
+            angle_list = angle_list[
+                slice(self.start_slice, self.n_rotations, self.steps_slice)
+             ]
+        else:
+            angle_list = self.local_rotations
+            angle_ids = list(range(len(angle_list)))
         # slices for relevant part for job statistics
         if (search_volume.ndim==3):
             search_volume_roi = (

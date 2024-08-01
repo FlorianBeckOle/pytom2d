@@ -84,28 +84,32 @@ def run_job_parallel(
     jobs = []
 
     # =================== Splitting into subjobs ===============
-    if n_pieces == 1:
-        if len(gpu_ids) > 1:  # split rotation search
-            jobs = main_job.split_rotation_search(len(gpu_ids))
+    if (main_job.priorFile is None):
+        if n_pieces == 1:
+            if len(gpu_ids) > 1:  # split rotation search
+                jobs = main_job.split_rotation_search(len(gpu_ids))
 
-        else:  # we just run the whole tomo on a single gpu
-            jobs.append(main_job)
+            else:  # we just run the whole tomo on a single gpu
+                jobs.append(main_job)
 
-    elif n_pieces > 1:
-        rotation_split_factor = len(gpu_ids) // n_pieces
+        elif n_pieces > 1:
+            rotation_split_factor = len(gpu_ids) // n_pieces
 
-        if (
-            rotation_split_factor >= 2
-        ):  # we can split the rotation search for the subvolumes
-            for j in main_job.split_volume_search(volume_splits):
-                jobs += j.split_rotation_search(rotation_split_factor)
+            if (
+                rotation_split_factor >= 2
+            ):  # we can split the rotation search for the subvolumes
+                for j in main_job.split_volume_search(volume_splits):
+                    jobs += j.split_rotation_search(rotation_split_factor)
 
-        else:  # only split the subvolume search
-            jobs = main_job.split_volume_search(volume_splits)
+            else:  # only split the subvolume search
+                jobs = main_job.split_volume_search(volume_splits)
 
+        else:
+            raise ValueError("Invalid number of pieces in split volume")
     else:
-        raise ValueError("Invalid number of pieces in split volume")
+        jobs=main_job.gen_jobs_from_priorFile(main_job.priorFile)    
 
+    
     # ================== Execution of jobs =========================
     if len(jobs) == 1:
         return main_job.start_job(gpu_ids[0], return_volumes=True)

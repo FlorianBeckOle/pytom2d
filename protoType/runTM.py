@@ -2,20 +2,21 @@
 import voltools as vt
 import cupy as cp
 from pytom_tm.mask import spherical_mask
-from pytom_tm.angles import angle_to_angle_list
+from pytom_tm.angles import angle_to_angle_list, angle_to_angle_list_local
 from pytom_tm.correlation import normalised_cross_correlation
 from pytom_tm.matching import TemplateMatchingGPU
 import numpy as np
 from matplotlib import pyplot as plt
 from pytom_tm.io import read_mrc,write_mrc
 from pytom_tm.weights import create_ctf
+import csv
 
 # %%
 t_size = 64
 
 basp="../data/"
-volume=read_mrc(basp+'img_1.mrc')
-template=read_mrc(basp+'riboSphere_3.mrc')
+volume=read_mrc(basp+'img_2.mrc')
+template=read_mrc(basp+'riboSphere_3N.mrc')
 mask=read_mrc(basp+'/maskTmpl.mrc')
 
 maskIsSpherical=False
@@ -30,6 +31,18 @@ ctf = create_ctf([t_size,t_size], pixS * 1e-10, defocus*1e-6,ampToPhaseRat , vol
 plt.imshow(ctf)        
 #ctf=None #use none to switch ctf correction off!
 
+# %%
+t_size = 64
+
+basp="../data/"
+volume=rr #tmpRot
+template=read_mrc(basp+'riboSphere_3N.mrc')
+mask=read_mrc(basp+'/m30.mrc')
+angles=angle_to_angle_list(12)
+maskIsSpherical=True
+
+
+
 
 # %%
 
@@ -42,7 +55,7 @@ tm = TemplateMatchingGPU(
             angles,
             list(range(len(angles))),
             maskIsSpherical,
-            ctf
+            #ctf
         )
 
 score_volume, angle_volume,stats = tm.run()# %%
@@ -58,6 +71,13 @@ angDeg=np.array(ang)*180/3.14
 print(angIdx,angDeg)
 
 # %% Rotate template around opt. angle and project
+basp="../data/"
+template=read_mrc(basp+'riboSphere_3N.mrc')
+ang=np.array([310,77,35])
+ang=tuple(np.deg2rad(ang))
+#ang=[-0.6283185307179586,1.5707963267948966,0.8377580409572781]
+#ang=[3.3379421944391554,0.6654052348364475,2.722713633111154]
+ang=[6.086835766330224,0.6654052348364475,1.6755160819145563]
 templatecp=cp.asarray(template, dtype=cp.float32, order="C")
 template_texture= vt.StaticVolume(
             templatecp, interpolation="filt_bspline", device=f"gpu:{0}"
@@ -73,6 +93,7 @@ template_texture.transform(
 
 tmpRot=tmpRot.sum(axis=2)
 
+plt.imshow(tmpRot.get())
 
 
 # %%

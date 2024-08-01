@@ -546,6 +546,17 @@ def match_template(argv=None):
         action=CheckDirExists,
         help="Folder to store the files produced by template matching.",
     )
+    io_group.add_argument(
+        "-pf",
+        "--priorFile",
+        type=pathlib.Path,
+        required=False,
+        default=None,
+        action=CheckFileExists,
+        help="File containing prior Information"
+        "posX posY posZ sz phi psi theta inplaneIncre inplaneRange coneIncre coneRange",
+    )
+    
     mask_group = parser.add_argument_group("Mask")
     mask_group.add_argument(
         "-m",
@@ -863,6 +874,7 @@ def match_template(argv=None):
         mask_is_spherical=True
         if args.non_spherical_mask is None
         else (not args.non_spherical_mask),
+        priorFile=args.priorFile,
         tilt_angles=args.tilt_angles,
         tilt_weighting=args.per_tilt_weighting,
         search_x=args.search_x,
