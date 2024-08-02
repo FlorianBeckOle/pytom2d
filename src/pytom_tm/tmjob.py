@@ -927,9 +927,14 @@ class TMJob:
                 )
 
         if self.ctf_data is not None and search_volume.ndim<3:
-            
-            tomo_filter = create_ctf(search_volume.shape,self.voxel_size* 1e-10, self.ctf_data)
-            template_wedge = create_ctf(search_volume.shape, self.voxel_size * 1e-10, self.ctf_data)
+            ctfd=self.ctf_data[0]
+            tomo_filter = create_ctf(search_volume.shape,self.voxel_size* 1e-10,ctfd["defocus"],
+                                     ctfd["amplitude_contrast"],ctfd["voltage"],ctfd["spherical_aberration"],
+                                     cut_after_first_zero=False,flip_phase=ctfd["flip_phase"],phase_shift_deg=ctfd["phase_shift_deg"])
+                                     
+            template_wedge = create_ctf(self.template_shape[0:2], self.voxel_size * 1e-10,ctfd["defocus"],
+                                        ctfd["amplitude_contrast"],ctfd["voltage"],ctfd["spherical_aberration"],
+                                        cut_after_first_zero=False,flip_phase=ctfd["flip_phase"],phase_shift_deg=ctfd["phase_shift_deg"]) 
             
         # apply the optional band pass and whitening filter to the search region
         search_volume = np.real(

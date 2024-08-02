@@ -402,5 +402,6 @@ def extract_particles(
             transparent=False,
             bbox_inches="tight",
         )
+        
 
     return output, scores
