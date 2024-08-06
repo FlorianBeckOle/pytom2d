@@ -292,7 +292,7 @@ def create_wedge(
     wedge: npt.NDArray[float]
         wedge volume that is a reduced fourier space object in z, i.e. shape[2] // 2 + 1
     """
-    if not isinstance(tilt_angles, list) or len(tilt_angles) < 2:
+    if not isinstance(tilt_angles, list) or len(tilt_angles) < 1:
         raise ValueError("Wedge generation needs at least a list of two tilt angles.")
 
     if voxel_size <= 0.0:

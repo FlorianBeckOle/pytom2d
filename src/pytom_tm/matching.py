@@ -206,6 +206,13 @@ class TemplateMatchingGPU:
             phase_randomize_template(template, rng_seed) if noise_correction else None
         )
 
+        vis=0
+        if vis==1:
+            import matplotlib
+            matplotlib.use('TkAgg')
+            import matplotlib.pyplot as plt
+            plt.imshow(volume)
+        
         self.plan = TemplateMatchingPlan(
             volume,
             template,
@@ -333,6 +340,14 @@ class TemplateMatchingGPU:
             )
             if (self.plan.inputDim==2):
                 self.plan.template=cp.sum(self.plan.template,axis=2)
+            
+            vis=0
+            if vis==1:
+                import matplotlib
+                matplotlib.use('TkAgg')
+                import matplotlib.pyplot as plt
+                plt.figure()
+                plt.imshow(self.plan.template.get())
             
             self.correlate(pad_index)
             if (self.plan.inputDim==2):

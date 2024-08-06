@@ -8,7 +8,7 @@ from pytom_tm.matching import TemplateMatchingGPU
 import numpy as np
 from matplotlib import pyplot as plt
 from pytom_tm.io import read_mrc,write_mrc
-from pytom_tm.weights import create_ctf
+from pytom_tm.weights import create_ctf,create_wedge
 import csv
 
 # %%
@@ -19,16 +19,37 @@ volume=read_mrc(basp+'img_2.mrc')
 template=read_mrc(basp+'riboSphere_3N.mrc')
 mask=read_mrc(basp+'/maskTmpl.mrc')
 
-maskIsSpherical=False
-angles=angle_to_angle_list(12) #ang list with increment 9
-pixS=1 #in Ang
-defocus=0.15 #in mue here very small used to reduce sampling artifacts
+# t_size = 176
+# basp="../../../data/CANC/"
+# volume=read_mrc(basp+'image/cut2.mrc')
+# template=read_mrc(basp+'template/b2/tmpInv.mrc')
+# mask=read_mrc(basp+'template/b2/mask.mrc')                  
+maskIsSpherical=True
+angles=angle_to_angle_list(15) #ang list with increment 9
+pixS=1.86 #in Ang
+defocus=1.34 #in mue here very small used to reduce sampling artifacts
 ampToPhaseRat=0.08
 volt=300
 cs=2.7
 print("sampling of ctf is too small in this example")
 ctf = create_ctf([t_size,t_size], pixS * 1e-10, defocus*1e-6,ampToPhaseRat , volt*1e3, cs*1e-3)
-plt.imshow(ctf)        
+ctfd={}
+ctfd["defocus"]=defocus*1e-6
+ctfd["amplitude_contrast"]=0.07
+ctfd["voltage"]=volt*1e3
+ctfd["spherical_aberration"]=cs*1e-3
+lctf=[]
+lctf.append(ctfd)
+lctf.append(ctfd)
+w=create_wedge(shape=[t_size,t_size,t_size],tilt_angles=[0,90],voxel_size=1.86,cut_off_radius=1.0,angles_in_degrees=True,
+               low_pass=None,high_pass=20,tilt_weighting=True,accumulated_dose_per_tilt=[60,100],ctf_params_per_tilt=lctf)
+   
+
+plt.imshow(ctf)
+# %%
+print("from wedge")
+g=w[:,1:90,0]
+plt.imshow(g)        
 #ctf=None #use none to switch ctf correction off!
 
 # %%
@@ -38,7 +59,7 @@ basp="../data/"
 volume=rr #tmpRot
 template=read_mrc(basp+'riboSphere_3N.mrc')
 mask=read_mrc(basp+'/m30.mrc')
-angles=angle_to_angle_list(12)
+angles=angle_to_angle_list(4)
 maskIsSpherical=True
 
 
@@ -55,8 +76,8 @@ tm = TemplateMatchingGPU(
             angles,
             list(range(len(angles))),
             maskIsSpherical,
-            #ctf
-        )
+            None,
+           )
 
 score_volume, angle_volume,stats = tm.run()# %%
 

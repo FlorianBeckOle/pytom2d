@@ -97,7 +97,8 @@ def angle_to_angle_list_local(
             euler_out[0] = np.arctan2(rott[1, 0], rott[0, 0])
             #euler_out[0] = np.rad2deg(np.arctan2(rott[1, 0], rott[0, 0]))
         
-        angSR.append([euler_out[0],euler_out[1],euler_out[2]])
+        #angSR.append([euler_out[0],euler_out[1],euler_out[2]])
+        angSR.append([euler_out[0],euler_out[2],euler_out[1]])
         
     if sort_angles:
         angSR.sort()

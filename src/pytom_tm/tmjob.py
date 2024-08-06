@@ -562,32 +562,24 @@ class TMJob:
         
         prior=[]
         prior=starfile.read(priorFile)
-        # with open(pr, 'r') as file:
-        #     for line in file:
-        #        values=line.split(" ")
-        #        float_values = tuple(float(value) for value in values)
-        #        prior.append(float_values)
-                
+       
         sub_jobs = []             
         i=0
         for pr in prior.itertuples(index=True, name='Pandas'):
             
             new_job = self.copy()
-            new_job.search_origin = [int(pr.ptmCoordinateX),int(pr.ptmCoordinateY),int(pr.ptmCoordinateZ)]
+            new_job.search_origin = [int(pr.ptmCoordinateX-(pr.ptmBoxSize/2)),int(pr.ptmCoordinateY-(pr.ptmBoxSize/2)),int(pr.ptmCoordinateZ)]
+            
             new_job.search_size = [int(pr.ptmBoxSize),int(pr.ptmBoxSize),1]
             # whole start is the start of the unique data within the complete searched array
-            new_job.whole_start = [int(pr.ptmCoordinateX),int(pr.ptmCoordinateY),int(pr.ptmCoordinateZ)]
-            # sub_start is where the unique data starts inside the split array
-            #new_job.sub_start = [int(pr[0]),int(pr[1]),int(pr[2])]
-            #new_job.sub_step = [int(pr[3]),int(pr[3]),1]
+            new_job.whole_start = new_job.search_origin #[int(pr.ptmCoordinateX),int(pr.ptmCoordinateY),int(pr.ptmCoordinateZ)]
             new_job.sub_start = [int(0),int(0),int(1)]
             new_job.sub_step = [int(pr.ptmBoxSize),int(pr.ptmBoxSize),1]
             centAng=[pr.ptmAnglePhi,pr.ptmAnglePsi,pr.ptmAngleTheta]
             new_job.local_rotations=angle_to_angle_list_local(pr.ptmInplaneInc,pr.ptmInplaneRange,
                                                               pr.ptmConeInc,pr.ptmConeRange,
                                                               centAng)
-            #new_job.local_rotations=[]
-            #new_job.local_rotations.append([-0.6283185307179586,1.5707963267948966,0.8377580409572781])
+            
             new_job.leader = self.job_key
             new_job.job_key = self.job_key + str(i)
             i+=1
@@ -779,6 +771,8 @@ class TMJob:
                         job.whole_start[2] : job.whole_start[2] + sub_scores.shape[2],
                     ] = sub_angles
                 else:
+                    
+                    
                     sub_scores = s[
                         job.sub_start[0] : job.sub_start[0] + job.sub_step[0],
                         job.sub_start[1] : job.sub_start[1] + job.sub_step[1],
@@ -787,15 +781,12 @@ class TMJob:
                         job.sub_start[0] : job.sub_start[0] + job.sub_step[0],
                         job.sub_start[1] : job.sub_start[1] + job.sub_step[1],
                         ]
-                    # Then the corrected sub part needs to be placed back into the full volume
-                    scores[
-                        job.whole_start[0] : job.whole_start[0] + sub_scores.shape[0],
-                        job.whole_start[1] : job.whole_start[1] + sub_scores.shape[1],
-                        ] = sub_scores
-                    angles[
-                        job.whole_start[0] : job.whole_start[0] + sub_scores.shape[0],
-                        job.whole_start[1] : job.whole_start[1] + sub_scores.shape[1],
-                       ] = sub_angles
+                   
+                    slice_x = slice(job.whole_start[0], job.whole_start[0] + sub_scores.shape[0])
+                    slice_y = slice(job.whole_start[1], job.whole_start[1] + sub_scores.shape[1])
+                    scores[slice_x, slice_y] = np.where(sub_scores > scores[slice_x, slice_y], sub_scores, scores[slice_x, slice_y])
+                    angles[slice_x,slice_y] = np.where(sub_scores > scores[slice_x, slice_y],sub_angles,angles[slice_x, slice_y])
+                     
                     
                         
         return scores, angles
@@ -935,11 +926,17 @@ class TMJob:
             template_wedge = create_ctf(self.template_shape[0:2], self.voxel_size * 1e-10,ctfd["defocus"],
                                         ctfd["amplitude_contrast"],ctfd["voltage"],ctfd["spherical_aberration"],
                                         cut_after_first_zero=False,flip_phase=ctfd["flip_phase"],phase_shift_deg=ctfd["phase_shift_deg"]) 
+        
+        if self.dose_accumulation is not None and search_volume.ndim<3:
+            pass
+            #q_squared = (q_grid / (2 * pixel_size_angstrom)) ** 2
+            #sigma_motion = np.sqrt(accumulated_dose_per_tilt[i] * 4 / (8 * np.pi**2))
+        
             
         # apply the optional band pass and whitening filter to the search region
-        search_volume = np.real(
-            irfftn(rfftn(search_volume) * tomo_filter, s=search_volume.shape)
-        )
+        #search_volume = np.real(
+        #    irfftn(rfftn(search_volume) * tomo_filter, s=search_volume.shape)
+        #)
 
         # load rotation search
         angle_ids = list(range(self.start_slice, self.n_rotations, self.steps_slice))
