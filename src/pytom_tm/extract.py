@@ -1,4 +1,5 @@
 from packaging import version
+from collections import namedtuple
 import pandas as pd
 import numpy as np
 import math
@@ -139,7 +140,7 @@ def predict_tophat_mask(
 
 
 def extract_particles(
-    job: TMJob,
+    job,
     particle_radius_px: int,
     n_particles: int,
     cut_off: Optional[float] = None,
@@ -155,6 +156,7 @@ def extract_particles(
     ----------
     job: pytom_tm.tmjob.TMJob
         template matching job to annotate particles from
+        or tuple containing score volume,angle volume and angles 
     particle_radius_px: int
         particle radius to remove peaks with after a score has been annotated
     n_particles: int
@@ -181,15 +183,38 @@ def extract_particles(
     dataframe, scores: tuple[pd.DataFrame, list[float, ...]]
         dataframe with annotations that can be written out as a STAR file and a list of the selected scores
     """
-
-    score_volume = read_mrc(job.output_dir.joinpath(f"{job.tomo_id}_scores.mrc"))
-    angle_volume = read_mrc(job.output_dir.joinpath(f"{job.tomo_id}_angles.mrc"))
-    angle_list = get_angle_list(
-        job.rotation_file,
-        sort_angles=version.parse(job.pytom_tm_version_number) > version.parse("0.3.0"),
-        symmetry=job.rotational_symmetry,
-    )
-
+    if isinstance(job,tuple):
+        score_volume,angle_volume,angle_list,tomogram_mask,pixel_size,tomogram_id=job
+        sigma=1
+        search_space=1
+        del job
+        job = namedtuple('job', ['search_origin','output_dir'])
+        job = job(search_origin=[0, 0],output_dir=None)
+    else:
+        score_volume = read_mrc(job.output_dir.joinpath(f"{job.tomo_id}_scores.mrc"))
+        angle_volume = read_mrc(job.output_dir.joinpath(f"{job.tomo_id}_angles.mrc"))
+        angle_list = get_angle_list(
+            job.rotation_file,
+            sort_angles=version.parse(job.pytom_tm_version_number) > version.parse("0.3.0"),
+            symmetry=job.rotational_symmetry,
+        )
+        sigma = job.job_stats["std"]
+        search_space = job.job_stats["search_space"]
+        tomogram_mask = None
+        if tomogram_mask_path is not None:
+            tomogram_mask = read_mrc(tomogram_mask_path)
+        elif job.tomogram_mask is not None:
+            tomogram_mask = read_mrc(job.tomogram_mask)
+        
+        if tomogram_mask is not None:    
+            slices = [
+                slice(origin, origin + size)
+                for origin, size in zip(job.search_origin, job.search_size)
+            ]
+            tomogram_mask = tomogram_mask[*slices]
+        pixel_size = job.voxel_size
+        tomogram_id = job.tomo_id        
+        
     if tophat_filter:  # constrain the extraction with a tophat filter
         predicted_peaks = predict_tophat_mask(
             score_volume,
@@ -203,19 +228,9 @@ def extract_particles(
         )
 
     # apply tomogram mask if provided
-    tomogram_mask = None
-    if tomogram_mask_path is not None:
-        tomogram_mask = read_mrc(tomogram_mask_path)
-    elif job.tomogram_mask is not None:
-        tomogram_mask = read_mrc(job.tomogram_mask)
+    
 
     if tomogram_mask is not None:
-        slices = [
-            slice(origin, origin + size)
-            for origin, size in zip(job.search_origin, job.search_size)
-        ]
-        tomogram_mask = tomogram_mask[*slices]
-        # mask should be larger than zero in regions of interest!
         score_volume[tomogram_mask <= 0] = 0
 
     # mask edges of score volume
@@ -232,9 +247,6 @@ def extract_particles(
         score_volume[-particle_radius_px:, :] = 0
         score_volume[:, -particle_radius_px:] = 0
          
-
-    sigma = job.job_stats["std"]
-    search_space = job.job_stats["search_space"]
     if cut_off is None:
         # formula Rickgauer et al. (2017, eLife): N**(-1) = erfc( theta / ( sigma * sqrt(2) ) ) / 2
         # we need to find theta (i.e. the cut off)
@@ -253,8 +265,7 @@ def extract_particles(
     cut_mask = cut_mask[:,:,math.floor(cut_mask.shape[2]/2)+1]
     
     # data for star file
-    pixel_size = job.voxel_size
-    tomogram_id = job.tomo_id
+   
 
     data = []
     scores = []
@@ -376,7 +387,7 @@ def extract_particles(
         }
         output = output.rename(columns=column_change)
 
-    create_plot=True
+    create_plot=False
     if plotting_available and create_plot:
         y, bins = np.histogram(scores, bins=20)
         x = (bins[1:] + bins[:-1]) / 2
